@@ -82,12 +82,20 @@ After forking, open the `Actions` page in your fork, enter `Epic Awesome Gamer (
 
 Go to `Settings` -> `Secrets and variables` -> `Actions`.
 
-Required in all cases:
+Account configuration (choose one):
+
+**Single account:**
 
 | Secret | Example value |
 | --- | --- |
 | `EPIC_EMAIL` | your_epic_email@example.com |
 | `EPIC_PASSWORD` | your_epic_password |
+
+**Multiple accounts:**
+
+| Secret | Example value |
+| --- | --- |
+| `EPIC_ACCOUNTS` | One account per line, format: `email:password` |
 
 If you use `GLM`, start with this set:
 
@@ -148,6 +156,32 @@ If you do want to override those four model fields explicitly, use values like t
 | `IMAGE_CLASSIFIER_MODEL` | empty or `glm-4.6v` | empty or `gemini-2.5-pro` |
 | `SPATIAL_POINT_REASONER_MODEL` | empty or `glm-4.6v` | empty or `gemini-2.5-pro` |
 | `SPATIAL_PATH_REASONER_MODEL` | empty or `glm-4.6v` | empty or `gemini-2.5-pro` |
+
+### Multi-account support (optional)
+
+If you have multiple Epic accounts, you can manage them all in a single Secret without forking the repo multiple times.
+
+Go to `Settings` -> `Secrets and variables` -> `Actions` and create a new Secret:
+
+| Secret | Value |
+| --- | --- |
+| `EPIC_ACCOUNTS` | One account per line, format: `email:password` |
+
+Example:
+
+```text
+user1@example.com:password1
+user2@example.com:password2
+user3@example.com:password3
+```
+
+Notes:
+
+- When `EPIC_ACCOUNTS` is set, `EPIC_EMAIL` / `EPIC_PASSWORD` are ignored.
+- If `EPIC_ACCOUNTS` is not set, the original single-account mode is used (fully backward compatible).
+- Each account runs independently: one account's failure does not affect the others.
+- Each account automatically gets its own isolated browser profile directory.
+- If a password contains a colon `:`, only the first colon is used as the separator.
 
 ### 3. Run the workflow manually once
 

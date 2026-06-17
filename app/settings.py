@@ -64,8 +64,11 @@ class EpicSettings(AgentConfig):
         default="auto", description="Supported values: auto, camoufox, playwright"
     )
 
-    EPIC_EMAIL: str = Field(default_factory=lambda: _env("EPIC_EMAIL"))
-    EPIC_PASSWORD: SecretStr = Field(default_factory=lambda: _env("EPIC_PASSWORD"))
+    EPIC_ACCOUNTS: SecretStr | None = Field(
+        default=None, description="Optional multiline email:password account list"
+    )
+    EPIC_EMAIL: str = Field(default_factory=lambda: _env("EPIC_EMAIL", ""))
+    EPIC_PASSWORD: SecretStr = Field(default_factory=lambda: _env("EPIC_PASSWORD", ""))
     DISABLE_BEZIER_TRAJECTORY: bool = Field(default=False)
     WAIT_FOR_CHALLENGE_VIEW_TO_RENDER_MS: int = Field(default=3000)
 

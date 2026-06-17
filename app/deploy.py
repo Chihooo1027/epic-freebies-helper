@@ -22,6 +22,7 @@ from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 from pytz import timezone
 
+from accounts import mask_email, parse_accounts, swap_account
 from services.epic_authorization_service import EpicAuthorization
 from services.browser_context import open_browser_context
 from services.epic_games_service import EpicAgent
@@ -90,6 +91,47 @@ async def execute_browser_tasks(headless: bool = True):
         logger.debug("Browser tasks execution finished successfully")
 
 
+async def _run_accounts(headless: bool) -> None:
+    """Run collection tasks for all configured accounts."""
+    accounts = parse_accounts()
+    if not accounts:
+        raise RuntimeError(
+            "No accounts configured. Set EPIC_ACCOUNTS (multiline email:password) "
+            "or EPIC_EMAIL + EPIC_PASSWORD."
+        )
+
+    total = len(accounts)
+    succeeded = 0
+    failed_accounts: list[str] = []
+
+    for index, (email, password) in enumerate(accounts, 1):
+        masked_email = mask_email(email)
+        logger.info("=" * 60)
+        logger.info("Processing account {}/{}: {}", index, total, masked_email)
+        logger.info("=" * 60)
+
+        try:
+            swap_account(email, password)
+            await execute_browser_tasks(headless=headless)
+            succeeded += 1
+            logger.success("Account {}/{} completed: {}", index, total, masked_email)
+        except Exception as err:
+            failed_accounts.append(masked_email)
+            logger.error("Account {}/{} failed: {} | error: {}", index, total, masked_email, err)
+            # Continue to next account — don't abort the entire run
+
+    # Summary
+    logger.info("=" * 60)
+    logger.info("Multi-account run summary: {}/{} succeeded", succeeded, total)
+    if failed_accounts:
+        logger.warning("Failed accounts: {}", ", ".join(failed_accounts))
+        raise RuntimeError(
+            f"{len(failed_accounts)} of {total} account(s) failed: "
+            + ", ".join(failed_accounts)
+        )
+    logger.success("All {} account(s) completed successfully", total)
+
+
 async def deploy():
     """
     Main deployment function that executes Epic Games collection tasks.
@@ -110,8 +152,8 @@ async def deploy():
         logger.error(configuration_error)
         raise RuntimeError(configuration_error)
 
-    # Execute an immediate collection task
-    await execute_browser_tasks(headless=headless)
+    # Execute collection tasks for all configured accounts
+    await _run_accounts(headless=headless)
 
     # Skip scheduler setup if disabled in configuration
     if not settings.ENABLE_APSCHEDULER:
@@ -123,7 +165,7 @@ async def deploy():
 
     # Strategy 1: Thursday 23:30 to Friday 03:30, every hour (Beijing Time)
     scheduler.add_job(
-        execute_browser_tasks,
+        _run_accounts,
         trigger=CronTrigger(
             day_of_week="thu", hour="23,0,1,2,3", minute="30", timezone="Asia/Shanghai"
         ),
@@ -136,7 +178,7 @@ async def deploy():
 
     # Strategy 2: Daily at 12:00 PM (Beijing Time)
     scheduler.add_job(
-        execute_browser_tasks,
+        _run_accounts,
         trigger=CronTrigger(hour="12", minute="0", timezone="Asia/Shanghai"),
         id="daily_epic_games_task",
         name="daily_epic_games_task",

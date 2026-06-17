@@ -82,12 +82,20 @@ Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Game
 
 进入 `Settings` -> `Secrets and variables` -> `Actions`。
 
-必须配置：
+账号配置（二选一）：
+
+**单账号：**
 
 | Secret | 示例值 |
 | --- | --- |
 | `EPIC_EMAIL` | your_epic_email@example.com |
 | `EPIC_PASSWORD` | your_epic_password |
+
+**多账号：**
+
+| Secret | 示例值 |
+| --- | --- |
+| `EPIC_ACCOUNTS` | 每行一个账号，格式为 `邮箱:密码` |
 
 如果你使用 `GLM`，建议先按下面这组填写：
 
@@ -147,6 +155,32 @@ Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Game
 | `IMAGE_CLASSIFIER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
 | `SPATIAL_POINT_REASONER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
 | `SPATIAL_PATH_REASONER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
+
+### 多账号配置（可选）
+
+如果你有多个 Epic 账号，可以用一个 Secret 同时管理，无需多次 Fork。
+
+进入 `Settings` -> `Secrets and variables` -> `Actions`，新建一个 Secret：
+
+| Secret | 值 |
+| --- | --- |
+| `EPIC_ACCOUNTS` | 每行一个账号，格式为 `邮箱:密码` |
+
+示例：
+
+```text
+user1@example.com:password1
+user2@example.com:password2
+user3@example.com:password3
+```
+
+说明：
+
+- 设置 `EPIC_ACCOUNTS` 后，会自动忽略 `EPIC_EMAIL` / `EPIC_PASSWORD`。
+- 如果不设置 `EPIC_ACCOUNTS`，仍然走原来的单账号模式，完全向后兼容。
+- 每个账号独立运行：一个账号失败不影响其他账号。
+- 每个账号自动使用独立的浏览器配置目录，互不干扰。
+- 密码中如果包含冒号 `:`，只会按第一个冒号分割，不会误判。
 
 ### 3. 手动运行一次
 
