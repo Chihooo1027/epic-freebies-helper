@@ -176,11 +176,13 @@ user3@example.com:password3
 
 说明：
 
-- 设置 `EPIC_ACCOUNTS` 后，会自动忽略 `EPIC_EMAIL` / `EPIC_PASSWORD`。
+- 设置了合法的 `EPIC_ACCOUNTS` 后，会优先使用它，忽略 `EPIC_EMAIL` / `EPIC_PASSWORD`。
 - 如果不设置 `EPIC_ACCOUNTS`，仍然走原来的单账号模式，完全向后兼容。
+- 如果设置了 `EPIC_ACCOUNTS` 但没有一行能被正确解析，会记录告警并回退到 `EPIC_EMAIL` / `EPIC_PASSWORD`，避免因为一个写错的 Secret 就破坏原本可用的单账号配置。
 - 每个账号独立运行：一个账号失败不影响其他账号。
 - 每个账号自动使用独立的浏览器配置目录，互不干扰。
 - 密码中如果包含冒号 `:`，只会按第一个冒号分割，不会误判。
+- 多账号是在同一个任务里顺序执行的，账号越多耗时越长。工作流超时时间可以通过仓库变量 `JOB_TIMEOUT_MINUTES` 调整（默认 60 分钟），账号较多时建议调大。
 
 ### 3. 手动运行一次
 

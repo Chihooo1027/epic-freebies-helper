@@ -177,11 +177,16 @@ user3@example.com:password3
 
 Notes:
 
-- When `EPIC_ACCOUNTS` is set, `EPIC_EMAIL` / `EPIC_PASSWORD` are ignored.
+- When `EPIC_ACCOUNTS` is set with valid entries, `EPIC_EMAIL` / `EPIC_PASSWORD` are ignored.
 - If `EPIC_ACCOUNTS` is not set, the original single-account mode is used (fully backward compatible).
+- If `EPIC_ACCOUNTS` is set but contains no valid entries, it falls back to `EPIC_EMAIL` / `EPIC_PASSWORD` so a malformed secret does not break an existing single-account setup.
 - Each account runs independently: one account's failure does not affect the others.
 - Each account automatically gets its own isolated browser profile directory.
 - If a password contains a colon `:`, only the first colon is used as the separator.
+- Multiple accounts run sequentially in one job. Since a single account can take 15-20 minutes, raise the workflow timeout for multiple accounts (see below).
+
+> [!IMPORTANT]
+> The workflow `timeout-minutes` defaults to 60, which fits a single account with room to spare. For more accounts, set a repository variable `JOB_TIMEOUT_MINUTES` (Settings -> Secrets and variables -> Actions -> Variables) to roughly 20 minutes per account, or the job may be killed before all accounts finish.
 
 ### 3. Run the workflow manually once
 

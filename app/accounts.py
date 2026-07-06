@@ -33,6 +33,10 @@ def parse_accounts() -> List[Tuple[str, str]]:
       1. EPIC_ACCOUNTS (multiline, one "email:password" per line)
       2. EPIC_EMAIL + EPIC_PASSWORD (single account fallback)
 
+    If EPIC_ACCOUNTS is set but contains no valid entries, this falls back to
+    EPIC_EMAIL / EPIC_PASSWORD so an existing single-account setup is not
+    broken by a malformed EPIC_ACCOUNTS secret.
+
     Returns:
         List of (email, password) tuples.
     """
@@ -71,8 +75,13 @@ def parse_accounts() -> List[Tuple[str, str]]:
             logger.info("Parsed {} account(s) from EPIC_ACCOUNTS", len(accounts))
             return accounts
 
-        logger.warning("EPIC_ACCOUNTS is set but no valid entries found")
-        return []
+        # EPIC_ACCOUNTS was set but nothing parsed. Fall back to the
+        # single-account config so a malformed secret does not break a repo
+        # that already had a working EPIC_EMAIL / EPIC_PASSWORD setup.
+        logger.warning(
+            "EPIC_ACCOUNTS is set but no valid entries were parsed; "
+            "falling back to EPIC_EMAIL / EPIC_PASSWORD if available"
+        )
 
     # --- Priority 2: EPIC_EMAIL + EPIC_PASSWORD (single account) ---
     email = (settings.EPIC_EMAIL or "").strip()

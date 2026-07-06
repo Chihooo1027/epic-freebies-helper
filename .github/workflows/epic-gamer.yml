@@ -13,8 +13,12 @@ env:
 jobs:
   epic-gamer:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    
+    # A single account run can take 15-20 minutes. Multi-account runs are
+    # sequential, so scale the timeout with the number of accounts by setting
+    # a repository variable JOB_TIMEOUT_MINUTES (Settings -> Secrets and
+    # variables -> Actions -> Variables). Defaults to 60 minutes.
+    timeout-minutes: ${{ fromJSON(vars.JOB_TIMEOUT_MINUTES || '60') }}
+
     # 默认不在主仓库自身执行定时任务；Fork 后的仓库会正常运行。
     if: github.repository != 'Ronchy2000/epic-freebies-helper'
 
