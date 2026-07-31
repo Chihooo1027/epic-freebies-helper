@@ -40,6 +40,7 @@ If you run into an error, please feel free to open an [Issue](https://github.com
 | Weekly free games discovery | Fetches and identifies currently claimable free titles |
 | Auto claim | Opens product pages and completes the checkout flow |
 | Claim result notifications | Optionally sends a Telegram run summary |
+| Multi-account support | Optional; single-account behavior is unchanged when not configured |
 | Captcha handling | Supports login captcha and checkout security checks |
 | Scheduled execution | Runs once every Thursday by default on GitHub Actions and can be adjusted |
 
@@ -85,7 +86,7 @@ Go to `Settings` -> `Secrets and variables` -> `Actions`.
 
 Keep account credentials and API keys in `Secrets`. `LLM_PROVIDER` and all `*_MODEL` names are non-sensitive configuration and should be stored in `Variables`. The workflow reads Variables first while retaining fallback support for existing Secrets. Startup logs now print the effective model routing, including `SPATIAL_PATH_REASONER_MODEL`. GitHub masks any value that still exists as a Secret, so move the model name to Variables and remove the same-named Secret if you need the exact value to remain visible in logs.
 
-Required in all cases:
+Required in all single-account setups (default path):
 
 | Setting | Example value |
 | --- | --- |
@@ -170,6 +171,42 @@ If you do want to override those four model fields explicitly, use values like t
 | `IMAGE_CLASSIFIER_MODEL` | empty or `glm-4.6v` | empty or `gemini-2.5-pro` |
 | `SPATIAL_POINT_REASONER_MODEL` | empty or `glm-4.6v` | empty or `gemini-2.5-pro` |
 | `SPATIAL_PATH_REASONER_MODEL` | empty or `glm-4.6v` | empty or `gemini-2.5-pro` |
+
+### Multi-account support (optional)
+
+This feature is fully optional. If you only configure `EPIC_EMAIL` / `EPIC_PASSWORD`, the existing single-account path is used unchanged.
+
+If you have multiple Epic accounts, you can manage them all in a single Secret without forking the repo multiple times.
+
+Go to `Settings` -> `Secrets and variables` -> `Actions` and create a new Secret:
+
+| Setting | Example value |
+| --- | --- |
+| `EPIC_ACCOUNTS` | One account per line, format: `email:password` |
+
+Example:
+
+```text
+user1@example.com:password1
+user2@example.com:password2
+user3@example.com:password3
+```
+
+Notes:
+
+- If `EPIC_ACCOUNTS` is unset or empty, the exact legacy single-account path is used. There is no credential swapping and no aggregated exception wrapping.
+- If `EPIC_ACCOUNTS` is set and **every non-empty line is valid**, the multi-account path runs sequentially.
+- If `EPIC_ACCOUNTS` contains **no valid lines**, the job falls back only when both `EPIC_EMAIL` and `EPIC_PASSWORD` are configured. Otherwise, it fails with a configuration error before starting a browser with empty credentials.
+- If `EPIC_ACCOUNTS` is set with **some valid and some invalid lines**, the job fails with a configuration error that lists the invalid line numbers. It will not silently skip bad lines and still report success.
+- Email shape is lightly validated, including rejection of path separators and control characters. If a password contains a colon `:`, only the first colon is used as the separator.
+- Each account runs independently: one account's failure does not affect the others. Each account still reuses the current login, hCaptcha, TOTP, Telegram, and browser runtime path.
+- Each account automatically gets its own isolated browser profile directory keyed by email.
+- Multi-account Telegram messages include a masked account label. Single-account Telegram formatting is unchanged when no label is supplied.
+- `EPIC_TOTP_SECRET` remains a global setting for now. It fits a shared authenticator secret, or enabling TOTP for only one of the accounts. Per-account TOTP is not supported yet.
+- Multiple accounts run sequentially in one job. Since a single account can take 15-20 minutes, raise the workflow timeout for multiple accounts (see below).
+
+> [!IMPORTANT]
+> The workflow `timeout-minutes` defaults to 60, which fits a single account with room to spare. For more accounts, set a repository variable `JOB_TIMEOUT_MINUTES` (Settings -> Secrets and variables -> Actions -> Variables) to roughly 20 minutes per account, or the job may be killed before all accounts finish.
 
 ### 3. Run the workflow manually once
 

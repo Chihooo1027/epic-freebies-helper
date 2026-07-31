@@ -69,8 +69,11 @@ class EpicSettings(AgentConfig):
         default=None, description="Optional HTTP(S) or SOCKS proxy URL shared by browser backends."
     )
 
-    EPIC_EMAIL: str = Field(default_factory=lambda: _env("EPIC_EMAIL"))
-    EPIC_PASSWORD: SecretStr = Field(default_factory=lambda: _env("EPIC_PASSWORD"))
+    EPIC_ACCOUNTS: SecretStr | None = Field(
+        default=None, description="Optional multiline email:password account list"
+    )
+    EPIC_EMAIL: str = Field(default_factory=lambda: _env("EPIC_EMAIL", ""))
+    EPIC_PASSWORD: SecretStr = Field(default_factory=lambda: _env("EPIC_PASSWORD", ""))
     DISABLE_BEZIER_TRAJECTORY: bool = Field(default=False)
     RETRY_ON_FAILURE: bool = Field(
         default=False,

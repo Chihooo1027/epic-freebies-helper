@@ -77,7 +77,11 @@ def _format_games(games: list[PromotionGame]) -> str:
     return "\n".join(lines)
 
 
-def build_telegram_summary_message(summary: CollectionSummary) -> str:
+def build_telegram_summary_message(
+    summary: CollectionSummary,
+    *,
+    account_label: str | None = None,
+) -> str:
     if summary.error_message and summary.newly_claimed_promotions:
         status = "部分成功"
     elif summary.error_message:
@@ -87,20 +91,26 @@ def build_telegram_summary_message(summary: CollectionSummary) -> str:
     else:
         status = "成功"
 
-    sections = [
-        "Epic 周免领取结果",
-        "",
-        f"运行状态：{status}",
-        "",
-        "本周游戏：",
-        _format_games(summary.all_promotions),
-        "",
-        "本次新领取：",
-        _format_games(summary.newly_claimed_promotions),
-        "",
-        "之前已领取：",
-        _format_games(summary.previously_claimed_promotions),
-    ]
+    sections = ["Epic 周免领取结果"]
+
+    if account_label:
+        sections.extend(["", f"账号：{escape(account_label, quote=True)}"])
+
+    sections.extend(
+        [
+            "",
+            f"运行状态：{status}",
+            "",
+            "本周游戏：",
+            _format_games(summary.all_promotions),
+            "",
+            "本次新领取：",
+            _format_games(summary.newly_claimed_promotions),
+            "",
+            "之前已领取：",
+            _format_games(summary.previously_claimed_promotions),
+        ]
+    )
 
     if summary.unconfirmed_promotions:
         sections.extend(["", "未确认成功：", _format_games(summary.unconfirmed_promotions)])
@@ -142,7 +152,11 @@ def failure_summary_from_exception(err: Exception) -> CollectionSummary:
     return summary
 
 
-async def send_collection_summary_to_telegram(summary: CollectionSummary) -> None:
+async def send_collection_summary_to_telegram(
+    summary: CollectionSummary,
+    *,
+    account_label: str | None = None,
+) -> None:
     token = _env("TELEGRAM_BOT_TOKEN")
     chat_id = _env("TELEGRAM_CHAT_ID")
     if not token or not chat_id:
@@ -153,7 +167,7 @@ async def send_collection_summary_to_telegram(summary: CollectionSummary) -> Non
     try:
         payload: dict[str, object] = {
             "chat_id": chat_id,
-            "text": build_telegram_summary_message(summary),
+            "text": build_telegram_summary_message(summary, account_label=account_label),
             "parse_mode": "HTML",
             "disable_web_page_preview": True,
         }

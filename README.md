@@ -48,6 +48,7 @@
 | 自动发现周免 | 拉取并识别当周可领取游戏 |
 | 自动领取 | 自动进入商品页并完成结账流程 |
 | 领取结果通知 | 可选发送 Telegram 运行摘要 |
+| 多账号支持 | 可选；不配置时保持原有单账号行为 |
 | 验证码处理 | 支持登录验证码和 checkout 二次安全校验 |
 | 定时执行 | 默认每周四晚通过 GitHub Actions 运行一次，可自行调整 |
 
@@ -93,7 +94,7 @@ Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Game
 
 账号、密码和 API Key 必须放在 `Secrets`。`LLM_PROVIDER` 以及所有 `*_MODEL` 模型名属于非敏感配置，建议放在 `Variables`；工作流会优先读取 Variables，并继续兼容已有的同名 Secrets。程序启动时会打印实际模型路由，包括 `SPATIAL_PATH_REASONER_MODEL`。如果模型名仍保存在 Secrets 中，GitHub 会把日志里的同值自动显示为 `***`；迁移到 Variables 并删除同名 Secret 后即可正常显示。
 
-必须配置：
+必须配置（单账号，默认路径）：
 
 | 配置名 | 示例值 |
 | --- | --- |
@@ -177,6 +178,39 @@ Fork 之后先打开自己仓库的 `Actions` 页面，进入 `Epic Awesome Game
 | `IMAGE_CLASSIFIER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
 | `SPATIAL_POINT_REASONER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
 | `SPATIAL_PATH_REASONER_MODEL` | 留空或 `glm-4.6v` | 留空或 `gemini-2.5-pro` |
+
+### 多账号配置（可选）
+
+这一项完全可选。只配置 `EPIC_EMAIL` / `EPIC_PASSWORD` 时，行为与现有单账号路径一致，不需要改任何现有配置。
+
+如果你有多个 Epic 账号，可以用一个 Secret 同时管理，无需多次 Fork。
+
+进入 `Settings` -> `Secrets and variables` -> `Actions`，新建一个 Secret：
+
+| 配置名 | 示例值 |
+| --- | --- |
+| `EPIC_ACCOUNTS` | 每行一个账号，格式为 `邮箱:密码` |
+
+示例：
+
+```text
+user1@example.com:password1
+user2@example.com:password2
+user3@example.com:password3
+```
+
+说明：
+
+- 不设置 `EPIC_ACCOUNTS`（或为空）时，直接走原来的单账号路径，不经过账号切换或异常聚合，现有配置与行为不变。
+- 设置了 `EPIC_ACCOUNTS` 且**全部行都合法**时，进入多账号顺序执行。
+- 设置了 `EPIC_ACCOUNTS` 但**没有任何合法行**时，仅当 `EPIC_EMAIL` / `EPIC_PASSWORD` 均已配置才回退到原单账号路径；否则立即报告配置错误，不会以空凭据启动浏览器。
+- 设置了 `EPIC_ACCOUNTS` 且**部分行合法、部分行非法**时，任务会直接以配置错误失败（指出非法行号），不会静默跳过某些账号后报成功。
+- 邮箱格式会做轻量校验，并拒绝路径分隔符与控制字符；密码中如果包含冒号 `:`，只会按第一个冒号分割。
+- 每个账号独立运行：一个账号失败不影响其他账号；每个账号仍复用当前的登录、hCaptcha、TOTP、Telegram 与浏览器运行时路径。
+- 每个账号自动使用独立的浏览器配置目录（按邮箱隔离），互不干扰。
+- 多账号 Telegram 通知会附带打码后的账号标签；单账号通知格式保持不变。
+- 当前 `EPIC_TOTP_SECRET` 仍是全局配置，适合同一验证器密钥，或只给其中一个账号开 TOTP 的场景；按账号拆分 TOTP 还不支持。
+- 多账号是在同一个任务里顺序执行的，账号越多耗时越长。工作流超时时间可以通过仓库变量 `JOB_TIMEOUT_MINUTES` 调整（默认 60 分钟），账号较多时建议调大。
 
 ### 3. 手动运行一次
 
