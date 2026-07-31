@@ -12,7 +12,6 @@ using browser automation and scheduling capabilities.
 
 import asyncio
 import json
-import os
 import signal
 from contextlib import suppress
 from datetime import datetime
@@ -24,8 +23,14 @@ from pytz import timezone
 
 from accounts import mask_email, parse_accounts, swap_account
 from services.epic_authorization_service import EpicAuthorization
-from services.browser_context import open_browser_context
+from services.browser_context import open_browser_context, resolve_headless_mode
+from services.epic_collection_summary_service import collect_epic_games_with_summary
 from services.epic_games_service import EpicAgent
+from services.telegram_notification_service import (
+    failure_summary_from_exception,
+    send_collection_summary_to_telegram,
+    telegram_notifications_enabled,
+)
 from settings import LOG_DIR
 from settings import settings
 from utils import init_log
@@ -41,15 +46,8 @@ init_log(
 TIMEZONE = timezone("Asia/Shanghai")
 
 
-def _env_bool(name: str, default: bool) -> bool:
-    value = os.getenv(name)
-    if value is None:
-        return default
-    return value.strip().lower() not in {"0", "false", "no", "off"}
-
-
 @logger.catch(reraise=True)
-async def execute_browser_tasks(headless: bool = True):
+async def execute_browser_tasks(headless: bool | str = True, *, collect_summary: bool = False):
     """
     Execute Epic Games free game collection tasks using browser automation.
 
@@ -79,7 +77,11 @@ async def execute_browser_tasks(headless: bool = True):
         logger.debug("Starting free games collection process")
         game_page = await browser.new_page()
         agent = EpicAgent(game_page)
-        await agent.collect_epic_games()
+        if collect_summary:
+            summary = await collect_epic_games_with_summary(agent)
+        else:
+            await agent.collect_epic_games()
+            summary = None
         logger.debug("Free games collection completed")
 
         # Cleanup browser resources
@@ -89,10 +91,37 @@ async def execute_browser_tasks(headless: bool = True):
                 await p.close()
 
         logger.debug("Browser tasks execution finished successfully")
+        return summary
+
+
+async def execute_browser_tasks_with_notification(headless: bool = True):
+    if configuration_error := settings.llm_configuration_error:
+        logger.error(configuration_error)
+        raise RuntimeError(configuration_error)
+
+    if not telegram_notifications_enabled():
+        logger.debug("Telegram notification is not configured; using standard collection flow")
+        await execute_browser_tasks(headless=headless)
+        return
+
+    try:
+        summary = await execute_browser_tasks(headless=headless, collect_summary=True)
+    except Exception as err:
+        await send_collection_summary_to_telegram(failure_summary_from_exception(err))
+        raise
+    else:
+        await send_collection_summary_to_telegram(summary)
 
 
 async def _run_accounts(headless: bool) -> None:
-    """Run collection tasks for all configured accounts."""
+    """
+    Optionally run collection for multiple accounts.
+
+    Multi-account support is fully optional: when only EPIC_EMAIL / EPIC_PASSWORD
+    are configured, this still executes the existing single-account path once.
+    Each account reuses execute_browser_tasks_with_notification so Telegram,
+    TOTP, and the current browser runtime stay on the same code path as master.
+    """
     accounts = parse_accounts()
     if not accounts:
         raise RuntimeError(
@@ -111,8 +140,9 @@ async def _run_accounts(headless: bool) -> None:
         logger.info("=" * 60)
 
         try:
+            # Swap active credentials so user_data_dir and login use this account.
             swap_account(email, password)
-            await execute_browser_tasks(headless=headless)
+            await execute_browser_tasks_with_notification(headless=headless)
             succeeded += 1
             logger.success("Account {}/{} completed: {}", index, total, masked_email)
         except Exception as err:
@@ -120,7 +150,6 @@ async def _run_accounts(headless: bool) -> None:
             logger.error("Account {}/{} failed: {} | error: {}", index, total, masked_email, err)
             # Continue to next account — don't abort the entire run
 
-    # Summary
     logger.info("=" * 60)
     logger.info("Multi-account run summary: {}/{} succeeded", succeeded, total)
     if failed_accounts:
@@ -139,7 +168,7 @@ async def deploy():
     This function runs the collection process immediately and optionally
     sets up a scheduled task for automatic recurring execution.
     """
-    headless = _env_bool("HEADLESS", True)
+    headless = resolve_headless_mode()
 
     # Log current configuration for debugging
     sj = settings.model_dump(mode="json")
@@ -157,11 +186,7 @@ async def deploy():
         settings.SPATIAL_PATH_REASONER_MODEL,
     )
 
-    if configuration_error := settings.llm_configuration_error:
-        logger.error(configuration_error)
-        raise RuntimeError(configuration_error)
-
-    # Execute collection tasks for all configured accounts
+    # Execute an immediate collection task (single- or multi-account)
     await _run_accounts(headless=headless)
 
     # Skip scheduler setup if disabled in configuration

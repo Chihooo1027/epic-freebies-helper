@@ -39,6 +39,8 @@ If you run into an error, please feel free to open an [Issue](https://github.com
 | Auto login | Signs in to your Epic account automatically |
 | Weekly free games discovery | Fetches and identifies currently claimable free titles |
 | Auto claim | Opens product pages and completes the checkout flow |
+| Claim result notifications | Optionally sends a Telegram run summary |
+| Multi-account support | Optional; single-account behavior is unchanged when not configured |
 | Captcha handling | Supports login captcha and checkout security checks |
 | Scheduled execution | Runs once every Thursday by default on GitHub Actions and can be adjusted |
 
@@ -59,7 +61,7 @@ The GLM path is primarily recommended for the following advantages:
 ## Prerequisites
 
 - Your Epic account email and password.
-- Epic account 2FA must be disabled (email, SMS, or authenticator app).
+- Disable Epic email/SMS 2FA. Authenticator-app 2FA is supported when `EPIC_TOTP_SECRET` is configured.
 - A GLM account with `GLM_API_KEY` prepared for captcha solving.
 
 ---
@@ -84,20 +86,31 @@ Go to `Settings` -> `Secrets and variables` -> `Actions`.
 
 Keep account credentials and API keys in `Secrets`. `LLM_PROVIDER` and all `*_MODEL` names are non-sensitive configuration and should be stored in `Variables`. The workflow reads Variables first while retaining fallback support for existing Secrets. Startup logs now print the effective model routing, including `SPATIAL_PATH_REASONER_MODEL`. GitHub masks any value that still exists as a Secret, so move the model name to Variables and remove the same-named Secret if you need the exact value to remain visible in logs.
 
-Account configuration (choose one):
-
-**Single account:**
+Required in all single-account setups (default path):
 
 | Setting | Example value |
 | --- | --- |
 | `EPIC_EMAIL` | your_epic_email@example.com |
 | `EPIC_PASSWORD` | your_epic_password |
 
-**Multiple accounts:**
+If the Epic account uses authenticator-app 2FA, also configure:
 
 | Setting | Example value |
 | --- | --- |
-| `EPIC_ACCOUNTS` | One account per line, format: `email:password` |
+| `EPIC_TOTP_SECRET` | The Base32 secret encoded in the authenticator QR code |
+
+The workflow generates the current six-digit TOTP on the MFA page. Email codes, SMS codes, and Passkeys are not supported. Do not enter the currently displayed six-digit code as the Secret.
+
+To receive Telegram claim summaries, optionally configure these Secrets:
+
+| Setting | Example value |
+| --- | --- |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token |
+| `TELEGRAM_CHAT_ID` | Telegram chat ID |
+
+Both settings must be present before a notification is sent. The message includes run status, current weekly games, newly claimed games, previously owned games, unconfirmed items, and failure reasons. Telegram delivery failures do not affect the claim task; when these settings are absent, the existing behavior is preserved.
+
+If shared cloud IP reputation causes unusually difficult hCaptcha challenges, you may optionally add a `BROWSER_PROXY` Secret. Supported forms are `http://username:password@host:port`, `https://...`, `socks4://...`, and `socks5://...`. Without it, browser networking is unchanged. Proxy quality, trust, and cost remain the user's responsibility.
 
 If you use `GLM`, start with this set:
 
@@ -161,11 +174,13 @@ If you do want to override those four model fields explicitly, use values like t
 
 ### Multi-account support (optional)
 
+This feature is fully optional. If you only configure `EPIC_EMAIL` / `EPIC_PASSWORD`, the existing single-account path is used unchanged.
+
 If you have multiple Epic accounts, you can manage them all in a single Secret without forking the repo multiple times.
 
 Go to `Settings` -> `Secrets and variables` -> `Actions` and create a new Secret:
 
-| Secret | Value |
+| Setting | Example value |
 | --- | --- |
 | `EPIC_ACCOUNTS` | One account per line, format: `email:password` |
 
@@ -179,11 +194,12 @@ user3@example.com:password3
 
 Notes:
 
-- When `EPIC_ACCOUNTS` is set with valid entries, `EPIC_EMAIL` / `EPIC_PASSWORD` are ignored.
-- If `EPIC_ACCOUNTS` is not set, the original single-account mode is used (fully backward compatible).
+- If `EPIC_ACCOUNTS` is not set, only `EPIC_EMAIL` / `EPIC_PASSWORD` are used and existing single-account behavior is preserved.
+- When `EPIC_ACCOUNTS` is set with valid entries, it takes priority.
 - If `EPIC_ACCOUNTS` is set but contains no valid entries, it falls back to `EPIC_EMAIL` / `EPIC_PASSWORD` so a malformed secret does not break an existing single-account setup.
-- Each account runs independently: one account's failure does not affect the others.
+- Each account runs independently: one account's failure does not affect the others. Each account still reuses the current login, hCaptcha, TOTP, Telegram, and browser runtime path.
 - Each account automatically gets its own isolated browser profile directory.
+- `EPIC_TOTP_SECRET` remains a global setting for now. It fits a shared authenticator secret, or enabling TOTP for only one of the accounts. Per-account TOTP is not supported yet.
 - If a password contains a colon `:`, only the first colon is used as the separator.
 - Multiple accounts run sequentially in one job. Since a single account can take 15-20 minutes, raise the workflow timeout for multiple accounts (see below).
 
@@ -285,9 +301,9 @@ The fix is simple: sign in to Epic once in a normal browser, complete that confi
 
 ### 3. Logs show `two_factor_authentication.required` or the page goes to `/id/login/mfa`
 
-This means Epic two-factor authentication is still enabled on the account. The current project does not support Epic email / SMS / authenticator-based 2FA, so you need to disable it in the Epic account settings before rerunning the workflow.
+This means the Epic account entered its two-factor authentication flow. For authenticator-app 2FA, add `EPIC_TOTP_SECRET` to GitHub Secrets and the workflow will generate and submit the current six-digit TOTP. Email codes, SMS codes, and Passkeys are not supported.
 
-If you see signals like these, treat them as “Epic 2FA is still enabled”:
+If you see signals like these, treat them as “Epic requires 2FA verification”:
 
 - `errors.com.epicgames.common.two_factor_authentication.required`
 - `Two-Factor authentication required to process request`
@@ -297,8 +313,8 @@ How to fix it:
 
 1. Sign in to the Epic account in a normal browser
 2. Open the account security settings page
-3. Click `Remove` for every enabled verification method
-4. Make sure email, SMS, authenticator, and any other Epic 2FA methods are all disabled
+3. For authenticator-app 2FA, add the QR code's Base32 secret to GitHub Secrets as `EPIC_TOTP_SECRET`
+4. If you do not want automatic authenticator codes, click `Remove` for the enabled verification method
 5. Rerun the workflow
 
 Reference page:
@@ -420,19 +436,19 @@ Thanks to the original authors, maintainers, and the community work that made th
 
 ## Star History
 
-<a href="https://www.star-history.com/?type=date&repos=ronchy2000%2Fepic-freebies-helper">
+<a href="https://github.com/Ronchy2000/epic-freebies-helper/stargazers">
   <picture>
     <source
       media="(prefers-color-scheme: dark)"
-      srcset="https://api.star-history.com/chart?repos=ronchy2000/epic-freebies-helper&type=date&theme=dark&legend=top-left"
+      srcset="docs/images/star-history-dark.svg"
     />
     <source
       media="(prefers-color-scheme: light)"
-      srcset="https://api.star-history.com/chart?repos=ronchy2000/epic-freebies-helper&type=date&legend=top-left"
+      srcset="docs/images/star-history-light.svg"
     />
     <img
       alt="Star History Chart"
-      src="https://api.star-history.com/chart?repos=ronchy2000/epic-freebies-helper&type=date&legend=top-left"
+      src="docs/images/star-history-light.svg"
     />
   </picture>
 </a>
@@ -457,6 +473,10 @@ We extend our most genuine gratitude to everyone who has submitted feedback. The
   <a href="https://github.com/1208nn"><img src="https://github.com/1208nn.png?size=96" width="64" height="64" alt="@1208nn" /></a>
   <a href="https://github.com/LGDhuanghe"><img src="https://github.com/LGDhuanghe.png?size=96" width="64" height="64" alt="@LGDhuanghe" /></a>
   <a href="https://github.com/AdjieC"><img src="https://github.com/AdjieC.png?size=96" width="64" height="64" alt="@AdjieC" /></a>
+  <a href="https://github.com/Leafrostar"><img src="https://github.com/Leafrostar.png?size=96" width="64" height="64" alt="@Leafrostar" /></a>
+  <a href="https://github.com/AcosX"><img src="https://github.com/AcosX.png?size=96" width="64" height="64" alt="@AcosX" /></a>
+  <a href="https://github.com/Elykia093"><img src="https://github.com/Elykia093.png?size=96" width="64" height="64" alt="@Elykia093" /></a>
+  <a href="https://github.com/ZoveyOhhh"><img src="https://github.com/ZoveyOhhh.png?size=96" width="64" height="64" alt="@ZoveyOhhh" /></a>
 </p>
 
 <!-- <p align="center">
@@ -465,7 +485,11 @@ We extend our most genuine gratitude to everyone who has submitted feedback. The
     <a href="https://github.com/cita-777"><b>cita-777</b></a> ·
     <a href="https://github.com/1208nn"><b>1208nn</b></a> ·
     <a href="https://github.com/LGDhuanghe"><b>LGDhuanghe</b></a> ·
-    <a href="https://github.com/AdjieC"><b>AdjieC</b></a>
+    <a href="https://github.com/AdjieC"><b>AdjieC</b></a> ·
+    <a href="https://github.com/Leafrostar"><b>Leafrostar</b></a> ·
+    <a href="https://github.com/AcosX"><b>AcosX</b></a> ·
+    <a href="https://github.com/Elykia093"><b>Elykia093</b></a> ·
+    <a href="https://github.com/ZoveyOhhh"><b>ZoveyOhhh</b></a>
   </sub>
 </p> -->
 
