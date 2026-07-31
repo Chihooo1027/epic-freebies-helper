@@ -194,13 +194,15 @@ user3@example.com:password3
 
 Notes:
 
-- If `EPIC_ACCOUNTS` is not set, only `EPIC_EMAIL` / `EPIC_PASSWORD` are used and existing single-account behavior is preserved.
-- When `EPIC_ACCOUNTS` is set with valid entries, it takes priority.
-- If `EPIC_ACCOUNTS` is set but contains no valid entries, it falls back to `EPIC_EMAIL` / `EPIC_PASSWORD` so a malformed secret does not break an existing single-account setup.
+- If `EPIC_ACCOUNTS` is unset or empty, the exact legacy single-account path is used. There is no credential swapping and no aggregated exception wrapping.
+- If `EPIC_ACCOUNTS` is set and **every non-empty line is valid**, the multi-account path runs sequentially.
+- If `EPIC_ACCOUNTS` is set but contains **no valid lines**, the job falls back to `EPIC_EMAIL` / `EPIC_PASSWORD`.
+- If `EPIC_ACCOUNTS` is set with **some valid and some invalid lines**, the job fails with a configuration error that lists the invalid line numbers. It will not silently skip bad lines and still report success.
+- Email shape is lightly validated. If a password contains a colon `:`, only the first colon is used as the separator.
 - Each account runs independently: one account's failure does not affect the others. Each account still reuses the current login, hCaptcha, TOTP, Telegram, and browser runtime path.
-- Each account automatically gets its own isolated browser profile directory.
+- Each account automatically gets its own isolated browser profile directory keyed by email.
+- Multi-account Telegram messages include a masked account label. Single-account Telegram formatting is unchanged when no label is supplied.
 - `EPIC_TOTP_SECRET` remains a global setting for now. It fits a shared authenticator secret, or enabling TOTP for only one of the accounts. Per-account TOTP is not supported yet.
-- If a password contains a colon `:`, only the first colon is used as the separator.
 - Multiple accounts run sequentially in one job. Since a single account can take 15-20 minutes, raise the workflow timeout for multiple accounts (see below).
 
 > [!IMPORTANT]

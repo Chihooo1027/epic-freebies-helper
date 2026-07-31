@@ -1137,3 +1137,34 @@
   - README 改用仓库内的明暗主题 SVG，不再依赖会返回 503 的第三方实时图片接口。
   - 新增每日定时及手动触发的 Action，使用本仓库短期 `GITHUB_TOKEN` 从 GitHub API 获取 Stargazer 时间戳并更新图表，不需要公开个人 PAT。
   - 更新任务只在上游仓库执行，Fork 与原有领取工作流不受影响；Star 数据没有变化时不会创建空提交。
+
+### 2026-07-31 可选多账号支持（保持单账号路径不变）
+
+- 现象：
+  - 需要在同一个 Fork / 同一次 workflow 中顺序处理多个 Epic 账号，但现有用户仍只配置 `EPIC_EMAIL` / `EPIC_PASSWORD`。
+  - 早期多账号实现会把单账号也送进聚合循环，改写异常类型与诊断栈；部分非法 `EPIC_ACCOUNTS` 行会被静默跳过。
+  - 多账号场景下 Telegram 摘要无法区分是哪个账号的结果。
+- 根因判断：
+  - 多账号必须是完全可选能力：未启用时要走与 master 完全相同的单账号调用链。
+  - `EPIC_ACCOUNTS` 部分合法、部分非法时若静默省略，会造成“配置写了 3 个账号但只跑了 2 个却显示成功”的假阴性。
+  - Telegram 通知在多账号下需要账号归因，同时单账号默认文案不能变。
+- 改动文件：
+  - `app/accounts.py`
+  - `app/deploy.py`
+  - `app/settings.py`
+  - `app/services/telegram_notification_service.py`
+  - `.github/workflows/epic-gamer.yml`
+  - `.env.example`
+  - `README.md`
+  - `README.en.md`
+  - `tests/test_accounts.py`
+  - `tests/test_telegram_account_label.py`
+  - `docs/maintenance-log.md`
+- 处理结果：
+  - 可选 `EPIC_ACCOUNTS`（多行 `email:password`）；未配置或全非法时回退/直通原有 `EPIC_EMAIL` / `EPIC_PASSWORD` 单账号路径，直接调用 `execute_browser_tasks_with_notification()`，不做 `swap_account` 或异常聚合。
+  - 仅在全部非空行都合法时进入多账号顺序执行；若同时存在合法与非法行，任务以配置错误失败并列出非法行号，不会静默跳过。
+  - 密码允许包含冒号（只按第一个 `:` 分割）；邮箱做轻量格式校验。
+  - 每个账号切换 `settings.EPIC_EMAIL` / `EPIC_PASSWORD` 后复用现有登录、hCaptcha、TOTP、Telegram 与 browser runtime；浏览器 profile 仍按邮箱隔离。
+  - 多账号 Telegram 摘要增加打码后的 `账号：` 标签；单账号不传 `account_label`，消息格式保持不变。
+  - `EPIC_TOTP_SECRET` 仍为全局限制（本版已知限制，文档已说明）；工作流超时可通过 `JOB_TIMEOUT_MINUTES` 配置（默认 60）。
+  - 补充针对缺省 `EPIC_ACCOUNTS`、全非法回退、部分非法失败、密码含冒号、单账号通知格式不变的回归测试。

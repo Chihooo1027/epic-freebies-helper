@@ -21,7 +21,12 @@ from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 from pytz import timezone
 
-from accounts import mask_email, parse_accounts, swap_account
+from accounts import (
+    get_epic_accounts_raw,
+    mask_email,
+    parse_multi_accounts,
+    swap_account,
+)
 from services.epic_authorization_service import EpicAuthorization
 from services.browser_context import open_browser_context, resolve_headless_mode
 from services.epic_collection_summary_service import collect_epic_games_with_summary
@@ -94,7 +99,11 @@ async def execute_browser_tasks(headless: bool | str = True, *, collect_summary:
         return summary
 
 
-async def execute_browser_tasks_with_notification(headless: bool = True):
+async def execute_browser_tasks_with_notification(
+    headless: bool | str = True,
+    *,
+    account_label: str | None = None,
+):
     if configuration_error := settings.llm_configuration_error:
         logger.error(configuration_error)
         raise RuntimeError(configuration_error)
@@ -107,28 +116,20 @@ async def execute_browser_tasks_with_notification(headless: bool = True):
     try:
         summary = await execute_browser_tasks(headless=headless, collect_summary=True)
     except Exception as err:
-        await send_collection_summary_to_telegram(failure_summary_from_exception(err))
+        await send_collection_summary_to_telegram(
+            failure_summary_from_exception(err),
+            account_label=account_label,
+        )
         raise
     else:
-        await send_collection_summary_to_telegram(summary)
+        await send_collection_summary_to_telegram(summary, account_label=account_label)
 
 
-async def _run_accounts(headless: bool) -> None:
-    """
-    Optionally run collection for multiple accounts.
-
-    Multi-account support is fully optional: when only EPIC_EMAIL / EPIC_PASSWORD
-    are configured, this still executes the existing single-account path once.
-    Each account reuses execute_browser_tasks_with_notification so Telegram,
-    TOTP, and the current browser runtime stay on the same code path as master.
-    """
-    accounts = parse_accounts()
-    if not accounts:
-        raise RuntimeError(
-            "No accounts configured. Set EPIC_ACCOUNTS (multiline email:password) "
-            "or EPIC_EMAIL + EPIC_PASSWORD."
-        )
-
+async def execute_multiple_accounts(
+    accounts: list[tuple[str, str]],
+    headless: bool | str = True,
+) -> None:
+    """Run collection for an explicitly enabled, fully valid multi-account list."""
     total = len(accounts)
     succeeded = 0
     failed_accounts: list[str] = []
@@ -142,7 +143,10 @@ async def _run_accounts(headless: bool) -> None:
         try:
             # Swap active credentials so user_data_dir and login use this account.
             swap_account(email, password)
-            await execute_browser_tasks_with_notification(headless=headless)
+            await execute_browser_tasks_with_notification(
+                headless=headless,
+                account_label=masked_email,
+            )
             succeeded += 1
             logger.success("Account {}/{} completed: {}", index, total, masked_email)
         except Exception as err:
@@ -159,6 +163,42 @@ async def _run_accounts(headless: bool) -> None:
             + ", ".join(failed_accounts)
         )
     logger.success("All {} account(s) completed successfully", total)
+
+
+async def _run_accounts(headless: bool | str = True) -> None:
+    """
+    Dispatch single-account and multi-account collection.
+
+    - EPIC_ACCOUNTS unset/empty: exact legacy single-account path
+    - EPIC_ACCOUNTS present but no valid rows: fall back to legacy path
+    - some valid + some invalid rows: fail with configuration error
+    - fully valid rows: multi-account aggregation loop
+    """
+    raw = get_epic_accounts_raw()
+
+    if not raw:
+        # Preserve the exact legacy single-account execution path.
+        await execute_browser_tasks_with_notification(headless=headless)
+        return
+
+    accounts, invalid_lines = parse_multi_accounts(raw)
+
+    if not accounts:
+        logger.warning(
+            "No valid EPIC_ACCOUNTS entries; using the legacy single-account configuration"
+        )
+        await execute_browser_tasks_with_notification(headless=headless)
+        return
+
+    if invalid_lines:
+        raise RuntimeError(
+            "Invalid EPIC_ACCOUNTS entries on line(s): "
+            + ", ".join(map(str, invalid_lines))
+        )
+
+    # Only explicitly enabled, fully valid multi-account configurations
+    # should enter the aggregation loop.
+    await execute_multiple_accounts(accounts, headless=headless)
 
 
 async def deploy():
