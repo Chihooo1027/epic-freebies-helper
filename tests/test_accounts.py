@@ -14,6 +14,8 @@ APP_DIR = ROOT / "app"
 
 
 def _load_accounts_module():
+    """Load accounts.py under a unique module name without permanently stubbing settings."""
+    saved_loguru = sys.modules.get("loguru")
     log_mod = types.ModuleType("loguru")
 
     class _Logger:
@@ -32,9 +34,41 @@ def _load_accounts_module():
         def debug(self, *args, **kwargs):
             return None
 
+        def catch(self, *args, **kwargs):
+            def decorator(fn):
+                return fn
+
+            if args and callable(args[0]) and not kwargs:
+                return args[0]
+            return decorator
+
     log_mod.logger = _Logger()
     sys.modules["loguru"] = log_mod
 
+    if str(APP_DIR) not in sys.path:
+        sys.path.insert(0, str(APP_DIR))
+
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "accounts_under_test", APP_DIR / "accounts.py"
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+    finally:
+        if saved_loguru is None:
+            sys.modules.pop("loguru", None)
+        else:
+            sys.modules["loguru"] = saved_loguru
+
+
+accounts = _load_accounts_module()
+
+
+@pytest.fixture
+def fake_settings(monkeypatch):
+    """Install a temporary settings stub only for the duration of one test."""
     settings_mod = types.ModuleType("settings")
 
     class _Settings:
@@ -42,20 +76,10 @@ def _load_accounts_module():
         EPIC_EMAIL = ""
         EPIC_PASSWORD = SecretStr("")
 
-    settings_mod.settings = _Settings()
-    sys.modules["settings"] = settings_mod
-
-    if str(APP_DIR) not in sys.path:
-        sys.path.insert(0, str(APP_DIR))
-
-    spec = importlib.util.spec_from_file_location("accounts", APP_DIR / "accounts.py")
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None and spec.loader is not None
-    spec.loader.exec_module(module)
-    return module, settings_mod.settings
-
-
-accounts, settings = _load_accounts_module()
+    settings_obj = _Settings()
+    settings_mod.settings = settings_obj
+    monkeypatch.setitem(sys.modules, "settings", settings_mod)
+    return settings_obj
 
 
 def test_mask_email():
@@ -100,29 +124,29 @@ def test_parse_multi_accounts_collects_invalid_line_numbers():
     assert invalid == [2, 3, 4, 5]
 
 
-def test_parse_accounts_absent_epic_accounts_uses_single_account():
-    settings.EPIC_ACCOUNTS = None
-    settings.EPIC_EMAIL = "solo@example.com"
-    settings.EPIC_PASSWORD = SecretStr("solo-pass")
+def test_parse_accounts_absent_epic_accounts_uses_single_account(fake_settings):
+    fake_settings.EPIC_ACCOUNTS = None
+    fake_settings.EPIC_EMAIL = "solo@example.com"
+    fake_settings.EPIC_PASSWORD = SecretStr("solo-pass")
     assert accounts.parse_accounts() == [("solo@example.com", "solo-pass")]
 
 
-def test_parse_accounts_fully_invalid_falls_back_to_single_account():
-    settings.EPIC_ACCOUNTS = SecretStr("bad-line\nalso-bad")
-    settings.EPIC_EMAIL = "solo@example.com"
-    settings.EPIC_PASSWORD = SecretStr("solo-pass")
+def test_parse_accounts_fully_invalid_falls_back_to_single_account(fake_settings):
+    fake_settings.EPIC_ACCOUNTS = SecretStr("bad-line\nalso-bad")
+    fake_settings.EPIC_EMAIL = "solo@example.com"
+    fake_settings.EPIC_PASSWORD = SecretStr("solo-pass")
     assert accounts.parse_accounts() == [("solo@example.com", "solo-pass")]
 
 
-def test_parse_accounts_partially_invalid_raises():
-    settings.EPIC_ACCOUNTS = SecretStr("good@example.com:pw\nbad-line")
-    settings.EPIC_EMAIL = "solo@example.com"
-    settings.EPIC_PASSWORD = SecretStr("solo-pass")
+def test_parse_accounts_partially_invalid_raises(fake_settings):
+    fake_settings.EPIC_ACCOUNTS = SecretStr("good@example.com:pw\nbad-line")
+    fake_settings.EPIC_EMAIL = "solo@example.com"
+    fake_settings.EPIC_PASSWORD = SecretStr("solo-pass")
     with pytest.raises(RuntimeError, match="line\\(s\\): 2"):
         accounts.parse_accounts()
 
 
-def test_swap_account_updates_settings():
+def test_swap_account_updates_settings(fake_settings):
     accounts.swap_account("swapped@example.com", "new-secret")
-    assert settings.EPIC_EMAIL == "swapped@example.com"
-    assert settings.EPIC_PASSWORD.get_secret_value() == "new-secret"
+    assert fake_settings.EPIC_EMAIL == "swapped@example.com"
+    assert fake_settings.EPIC_PASSWORD.get_secret_value() == "new-secret"

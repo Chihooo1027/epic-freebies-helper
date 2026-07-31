@@ -159,8 +159,7 @@ async def execute_multiple_accounts(
     if failed_accounts:
         logger.warning("Failed accounts: {}", ", ".join(failed_accounts))
         raise RuntimeError(
-            f"{len(failed_accounts)} of {total} account(s) failed: "
-            + ", ".join(failed_accounts)
+            f"{len(failed_accounts)} of {total} account(s) failed: " + ", ".join(failed_accounts)
         )
     logger.success("All {} account(s) completed successfully", total)
 
@@ -192,8 +191,7 @@ async def _run_accounts(headless: bool | str = True) -> None:
 
     if invalid_lines:
         raise RuntimeError(
-            "Invalid EPIC_ACCOUNTS entries on line(s): "
-            + ", ".join(map(str, invalid_lines))
+            "Invalid EPIC_ACCOUNTS entries on line(s): " + ", ".join(map(str, invalid_lines))
         )
 
     # Only explicitly enabled, fully valid multi-account configurations

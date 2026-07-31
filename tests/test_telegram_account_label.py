@@ -11,17 +11,18 @@ APP_DIR = ROOT / "app"
 
 
 def _load_telegram_module():
-    # Minimal stubs so the notification module can be imported without the full app stack.
-    for name in (
+    stub_names = (
         "httpx",
         "loguru",
         "models",
         "services",
         "services.epic_collection_summary_service",
         "services.epic_games_service",
-    ):
-        if name not in sys.modules:
-            sys.modules[name] = types.ModuleType(name)
+    )
+    saved = {name: sys.modules.get(name) for name in stub_names}
+
+    for name in stub_names:
+        sys.modules[name] = types.ModuleType(name)
 
     log_mod = sys.modules["loguru"]
 
@@ -40,6 +41,14 @@ def _load_telegram_module():
 
         def debug(self, *args, **kwargs):
             return None
+
+        def catch(self, *args, **kwargs):
+            def decorator(fn):
+                return fn
+
+            if args and callable(args[0]) and not kwargs:
+                return args[0]
+            return decorator
 
     log_mod.logger = _Logger()
 
@@ -74,26 +83,32 @@ def _load_telegram_module():
             self.error_message = error_message
 
     summary_mod.CollectionSummary = CollectionSummary
-
     games_mod = sys.modules["services.epic_games_service"]
     games_mod.get_promotions = lambda: []
 
     if str(APP_DIR) not in sys.path:
         sys.path.insert(0, str(APP_DIR))
 
-    # Ensure package-style imports resolve for nested service modules.
     services_pkg = sys.modules["services"]
     services_pkg.epic_collection_summary_service = summary_mod
     services_pkg.epic_games_service = games_mod
 
-    spec = importlib.util.spec_from_file_location(
-        "telegram_notification_service",
-        APP_DIR / "services" / "telegram_notification_service.py",
-    )
-    module = importlib.util.module_from_spec(spec)
-    assert spec is not None and spec.loader is not None
-    spec.loader.exec_module(module)
-    return module, CollectionSummary, PromotionGame
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "telegram_notification_service_under_test",
+            APP_DIR / "services" / "telegram_notification_service.py",
+        )
+        module = importlib.util.module_from_spec(spec)
+        assert spec is not None and spec.loader is not None
+        spec.loader.exec_module(module)
+        return module, CollectionSummary, PromotionGame
+    finally:
+        # Restore immediately so later test collection is not polluted.
+        for name, previous in saved.items():
+            if previous is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = previous
 
 
 telegram, CollectionSummary, PromotionGame = _load_telegram_module()
@@ -123,5 +138,4 @@ def test_multi_account_telegram_message_includes_masked_account_label():
     )
     assert "Epic 周免领取结果" in message
     assert "账号：ab***@example.com" in message
-    # Account line should appear before status.
     assert message.index("账号：") < message.index("运行状态：")

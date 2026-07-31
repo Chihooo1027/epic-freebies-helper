@@ -99,8 +99,7 @@ def parse_accounts() -> List[Tuple[str, str]]:
         if accounts and invalid_lines:
             # Callers that still use this helper should not silently drop lines.
             raise RuntimeError(
-                "Invalid EPIC_ACCOUNTS entries on line(s): "
-                + ", ".join(map(str, invalid_lines))
+                "Invalid EPIC_ACCOUNTS entries on line(s): " + ", ".join(map(str, invalid_lines))
             )
         logger.warning(
             "EPIC_ACCOUNTS is set but no valid entries were parsed; "
