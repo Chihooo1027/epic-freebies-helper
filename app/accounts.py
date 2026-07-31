@@ -28,7 +28,11 @@ def mask_email(email: str) -> str:
 def is_valid_email(email: str) -> bool:
     """Lightweight email shape check used for EPIC_ACCOUNTS validation."""
     email = (email or "").strip()
-    if not email or " " in email:
+    if not email or any(character.isspace() for character in email):
+        return False
+    if any(character in email for character in ("/", "\\")):
+        return False
+    if any(ord(character) < 32 or ord(character) == 127 for character in email):
         return False
     if email.count("@") != 1:
         return False

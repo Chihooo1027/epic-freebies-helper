@@ -21,12 +21,7 @@ from apscheduler.triggers.cron import CronTrigger
 from loguru import logger
 from pytz import timezone
 
-from accounts import (
-    get_epic_accounts_raw,
-    mask_email,
-    parse_multi_accounts,
-    swap_account,
-)
+from accounts import get_epic_accounts_raw, mask_email, parse_multi_accounts, swap_account
 from services.epic_authorization_service import EpicAuthorization
 from services.browser_context import open_browser_context, resolve_headless_mode
 from services.epic_collection_summary_service import collect_epic_games_with_summary
@@ -100,9 +95,7 @@ async def execute_browser_tasks(headless: bool | str = True, *, collect_summary:
 
 
 async def execute_browser_tasks_with_notification(
-    headless: bool | str = True,
-    *,
-    account_label: str | None = None,
+    headless: bool | str = True, *, account_label: str | None = None
 ):
     if configuration_error := settings.llm_configuration_error:
         logger.error(configuration_error)
@@ -117,8 +110,7 @@ async def execute_browser_tasks_with_notification(
         summary = await execute_browser_tasks(headless=headless, collect_summary=True)
     except Exception as err:
         await send_collection_summary_to_telegram(
-            failure_summary_from_exception(err),
-            account_label=account_label,
+            failure_summary_from_exception(err), account_label=account_label
         )
         raise
     else:
@@ -126,8 +118,7 @@ async def execute_browser_tasks_with_notification(
 
 
 async def execute_multiple_accounts(
-    accounts: list[tuple[str, str]],
-    headless: bool | str = True,
+    accounts: list[tuple[str, str]], headless: bool | str = True
 ) -> None:
     """Run collection for an explicitly enabled, fully valid multi-account list."""
     total = len(accounts)
@@ -144,8 +135,7 @@ async def execute_multiple_accounts(
             # Swap active credentials so user_data_dir and login use this account.
             swap_account(email, password)
             await execute_browser_tasks_with_notification(
-                headless=headless,
-                account_label=masked_email,
+                headless=headless, account_label=masked_email
             )
             succeeded += 1
             logger.success("Account {}/{} completed: {}", index, total, masked_email)
@@ -183,6 +173,13 @@ async def _run_accounts(headless: bool | str = True) -> None:
     accounts, invalid_lines = parse_multi_accounts(raw)
 
     if not accounts:
+        email = (settings.EPIC_EMAIL or "").strip()
+        password = settings.EPIC_PASSWORD.get_secret_value().strip()
+        if not email or not password:
+            raise RuntimeError(
+                "EPIC_ACCOUNTS contains no valid entries and "
+                "EPIC_EMAIL / EPIC_PASSWORD are not configured."
+            )
         logger.warning(
             "No valid EPIC_ACCOUNTS entries; using the legacy single-account configuration"
         )

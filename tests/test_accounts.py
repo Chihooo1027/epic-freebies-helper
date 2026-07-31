@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import sys
 import types
@@ -82,6 +83,13 @@ def fake_settings(monkeypatch):
     return settings_obj
 
 
+@pytest.fixture
+def deploy_module():
+    import deploy
+
+    return deploy
+
+
 def test_mask_email():
     assert accounts.mask_email("abc@example.com") == "ab***@example.com"
     assert accounts.mask_email("a@example.com") == "a***@example.com"
@@ -93,16 +101,16 @@ def test_is_valid_email():
     assert not accounts.is_valid_email("not-an-email")
     assert not accounts.is_valid_email("user@localhost")
     assert not accounts.is_valid_email("user name@example.com")
+    assert not accounts.is_valid_email("../../user@example.com")
+    assert not accounts.is_valid_email("user\\name@example.com")
+    assert not accounts.is_valid_email("user\tname@example.com")
 
 
 def test_parse_multi_accounts_passwords_may_contain_colons():
     raw = "a@example.com:pass:with:colons\nb@example.com:plain"
     parsed, invalid = accounts.parse_multi_accounts(raw)
     assert invalid == []
-    assert parsed == [
-        ("a@example.com", "pass:with:colons"),
-        ("b@example.com", "plain"),
-    ]
+    assert parsed == [("a@example.com", "pass:with:colons"), ("b@example.com", "plain")]
 
 
 def test_parse_multi_accounts_collects_invalid_line_numbers():
@@ -117,10 +125,7 @@ def test_parse_multi_accounts_collects_invalid_line_numbers():
         ]
     )
     parsed, invalid = accounts.parse_multi_accounts(raw)
-    assert parsed == [
-        ("good@example.com", "secret"),
-        ("also@example.com", "ok"),
-    ]
+    assert parsed == [("good@example.com", "secret"), ("also@example.com", "ok")]
     assert invalid == [2, 3, 4, 5]
 
 
@@ -150,3 +155,69 @@ def test_swap_account_updates_settings(fake_settings):
     accounts.swap_account("swapped@example.com", "new-secret")
     assert fake_settings.EPIC_EMAIL == "swapped@example.com"
     assert fake_settings.EPIC_PASSWORD.get_secret_value() == "new-secret"
+
+
+def test_run_accounts_without_multi_config_preserves_legacy_exception(monkeypatch, deploy_module):
+    original_error = RuntimeError("legacy failure")
+    calls: list[tuple[bool | str, str | None]] = []
+
+    monkeypatch.setattr(deploy_module, "get_epic_accounts_raw", lambda: "")
+
+    async def legacy_runner(headless=True, *, account_label=None):
+        calls.append((headless, account_label))
+        raise original_error
+
+    async def unexpected_multi_runner(*args, **kwargs):
+        pytest.fail("multi-account runner must not be called for legacy configuration")
+
+    monkeypatch.setattr(deploy_module, "execute_browser_tasks_with_notification", legacy_runner)
+    monkeypatch.setattr(deploy_module, "execute_multiple_accounts", unexpected_multi_runner)
+    monkeypatch.setattr(
+        deploy_module,
+        "swap_account",
+        lambda *args, **kwargs: pytest.fail("legacy configuration must not swap credentials"),
+    )
+
+    with pytest.raises(RuntimeError) as captured:
+        asyncio.run(deploy_module._run_accounts(headless="virtual"))
+
+    assert captured.value is original_error
+    assert calls == [("virtual", None)]
+
+
+def test_run_accounts_fully_invalid_uses_complete_legacy_credentials(monkeypatch, deploy_module):
+    calls: list[bool | str] = []
+    monkeypatch.setattr(deploy_module, "get_epic_accounts_raw", lambda: "invalid-line")
+    monkeypatch.setattr(deploy_module.settings, "EPIC_EMAIL", "solo@example.com")
+    monkeypatch.setattr(deploy_module.settings, "EPIC_PASSWORD", SecretStr("solo-pass"))
+
+    async def legacy_runner(headless=True, *, account_label=None):
+        calls.append(headless)
+
+    async def unexpected_multi_runner(*args, **kwargs):
+        pytest.fail("fully invalid multi-account input must use valid legacy credentials")
+
+    monkeypatch.setattr(deploy_module, "execute_browser_tasks_with_notification", legacy_runner)
+    monkeypatch.setattr(deploy_module, "execute_multiple_accounts", unexpected_multi_runner)
+
+    asyncio.run(deploy_module._run_accounts(headless=False))
+
+    assert calls == [False]
+
+
+def test_run_accounts_fully_invalid_without_legacy_credentials_fails_early(
+    monkeypatch, deploy_module
+):
+    monkeypatch.setattr(deploy_module, "get_epic_accounts_raw", lambda: "invalid-line")
+    monkeypatch.setattr(deploy_module.settings, "EPIC_EMAIL", "")
+    monkeypatch.setattr(deploy_module.settings, "EPIC_PASSWORD", SecretStr(""))
+
+    async def unexpected_legacy_runner(*args, **kwargs):
+        pytest.fail("browser flow must not start without any valid account credentials")
+
+    monkeypatch.setattr(
+        deploy_module, "execute_browser_tasks_with_notification", unexpected_legacy_runner
+    )
+
+    with pytest.raises(RuntimeError, match="contains no valid entries"):
+        asyncio.run(deploy_module._run_accounts(headless=True))

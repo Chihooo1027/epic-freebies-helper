@@ -196,9 +196,9 @@ Notes:
 
 - If `EPIC_ACCOUNTS` is unset or empty, the exact legacy single-account path is used. There is no credential swapping and no aggregated exception wrapping.
 - If `EPIC_ACCOUNTS` is set and **every non-empty line is valid**, the multi-account path runs sequentially.
-- If `EPIC_ACCOUNTS` is set but contains **no valid lines**, the job falls back to `EPIC_EMAIL` / `EPIC_PASSWORD`.
+- If `EPIC_ACCOUNTS` contains **no valid lines**, the job falls back only when both `EPIC_EMAIL` and `EPIC_PASSWORD` are configured. Otherwise, it fails with a configuration error before starting a browser with empty credentials.
 - If `EPIC_ACCOUNTS` is set with **some valid and some invalid lines**, the job fails with a configuration error that lists the invalid line numbers. It will not silently skip bad lines and still report success.
-- Email shape is lightly validated. If a password contains a colon `:`, only the first colon is used as the separator.
+- Email shape is lightly validated, including rejection of path separators and control characters. If a password contains a colon `:`, only the first colon is used as the separator.
 - Each account runs independently: one account's failure does not affect the others. Each account still reuses the current login, hCaptcha, TOTP, Telegram, and browser runtime path.
 - Each account automatically gets its own isolated browser profile directory keyed by email.
 - Multi-account Telegram messages include a masked account label. Single-account Telegram formatting is unchanged when no label is supplied.
